@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import pickle
+
 class Card:
     value: int=0
     color: bool=True
@@ -32,9 +34,10 @@ class Card:
         return a.color != b.color or a.value != b.value
     def __str__(self):
         return ("R" if self.color else "B")+str(self.value)
+    def __gt__(a, b):
+        return a.value > b.value
 
-
-class Hand(list):
+class List(list):
     def __init__(self, *args, **kwargs):
         if len(args)+len(kwargs)==1:
             super().__init__(*args, **kwargs)
@@ -43,6 +46,10 @@ class Hand(list):
 #            éléments en arguments
     def __str__(self):
         return ",".join([str(c) for c in self])
+    def put(self, x):
+        return self.append(x)
+class Hand(List):
+    pass
 class GameState:
     hand: Hand = []
     board: Card = None
@@ -51,8 +58,13 @@ class GameState:
         self.board=board
     def __str__(self):
         return str(self.board)+" : "+str(self.hand)
+    def serialize(self)->str:
+        return pickle.dumps(self)
+    @staticmethod
+    def deserialize(string):
+        return pickle.loads(string)
 
-class Pile(list):
+class Pile(List):
     pass
 
 class Action:
@@ -64,6 +76,16 @@ class Action:
         assert type_action in [self.TYPE_TIMEOUT, self.TYPE_MOVE], "Type invalide"
         self.type_action = type_action
         self.card=card
+    def serialize(self)->str:
+        return pickle.dumps(self)
+    @staticmethod
+    def deserialize(string):
+        return pickle.loads(string)
+    def __str__(self):
+        if self.type_action == self.TYPE_TIMEOUT:
+            return "timeout"
+        else:
+            return str(self.card)
 
 if __name__ == '__main__':
     card1 = Card(string="B12")
