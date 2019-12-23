@@ -41,49 +41,61 @@ class BoardLogicProcessing(Thread):
         self.pileL = pileL
         super().__init__()
     def run(self):
-        while True:
-            action = queue.get()
+        infos=None
+        while len(self.pile)>0:
+            action = self.queue.get()
             print("queued"+str(action))
-            if action.type_action == Action.TYPE_TIMEOUT:
-                pileL.acquire()
-                self.hand.put(pile.pop())
-                pileL.release()
-            elif action.type_action == Action.TYPE_MOVE:
-#                print(abs(action.card.value-self.board.value))
-                if action.card in self.hand:
-                    boardL.acquire()
-                    if validate_move(action.card, self.board):
-                        self.hand.remove(action.card)
-                        self.board = action.card
-                        boardL.release()
-                    else:
-                        boardL.release()
-                        self.pileL.acquire()
-                        self.hand.put(self.pile.pop()) #penalty
-                        self.pileL.release()
-            self.socket.send(GameState(self.hand, self.board).serialize())
-
+            infos=None
+            if len(self.hand)==0:
+                infos="you won"
+            else:
+                if action.type_action == Action.TYPE_TIMEOUT:
+                    self.pileL.acquire()
+                    self.hand.put(self.pile.pop())
+                    self.pileL.release()
+                elif action.type_action == Action.TYPE_MOVE:
+    #                print(abs(action.card.value-self.board.value))
+                    if action.card in self.hand:
+                        self.boardL.acquire()
+                        if validate_move(action.card, self.board):
+                            self.hand.remove(action.card)
+                            self.board = action.card
+                            self.boardL.release()
+                        else:
+                            self.boardL.release()
+                            self.pileL.acquire()
+                            self.hand.put(self.pile.pop()) #penalty
+                            self.pileL.release()
+            self.socket.send(GameState(self.hand,self.board, infos).serialize())
+            flush(self.queue)
+        self.socket.send(GameState(self.hand,self.board, "game ended").serialize())
+        self.queue.close()
 
 
 if __name__ == '__main__':
     print("starting server")
-    pile: Pile = Pile(shuffle(generate_pile(20, 10)))
+    pile: Pile = Pile(shuffle(4*generate_pile(20, 3)))
     board: Card = pile.pop()
 
     boardL = Lock()
     pileL = Lock()
     listener = socket() # défaut: STREAM, IPv4
-    listener.bind(("0.0.0.0", 1994))
+    listener.bind(("0.0.0.0", 1993))
     
-    while True:
+    queues=[] #pour broadcast
+
+    while len(pile)>5:
         listener.listen(15)
         conn, address = listener.accept()
-        hand = Hand()
-        for _ in range(5):
-            hand.put(pile.pop())
-        conn.send(GameState(hand, board).serialize())
-        queue = Queue()
-        Networking(conn, queue).start()
-        BoardLogicProcessing(conn, queue, hand, board, boardL, pile,
+        if len(pile)>5:
+            hand = Hand()
+            pileL.acquire()
+            for _ in range(5):
+                hand.put(pile.pop())
+            pileL.release()
+            conn.send(GameState(hand, board).serialize())
+            queue = Queue()
+            queues.append(queue)
+            Networking(conn, queue).start()
+            BoardLogicProcessing(conn, queue, hand, board, boardL, pile,
                              pileL).start()
-

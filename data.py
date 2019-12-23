@@ -53,11 +53,15 @@ class Hand(List):
 class GameState:
     hand: Hand = []
     board: Card = None
-    def __init__(self, hand, board):
+    infos: str
+    def __init__(self, hand, board, infos=None):
         self.hand=hand
         self.board=board
+        self.infos=infos
     def __str__(self):
-        return str(self.board)+" : "+str(self.hand)
+        if self.infos is None:
+            return str(self.board)+" : "+str(self.hand)
+        else: return self.infos
     def serialize(self)->str:
         return pickle.dumps(self)
     @staticmethod
@@ -72,9 +76,11 @@ class Action:
     card: Card=None
     TYPE_TIMEOUT=1
     TYPE_MOVE=2
-    def __init__(self, type_action, card=None):
+    infos: str
+    def __init__(self, type_action, card=None, infos=None):
         assert type_action in [self.TYPE_TIMEOUT, self.TYPE_MOVE], "Type invalide"
         self.type_action = type_action
+        self.infos=infos
         self.card=card
     def serialize(self)->str:
         return pickle.dumps(self)
@@ -84,6 +90,8 @@ class Action:
     def __str__(self):
         if self.type_action == self.TYPE_TIMEOUT:
             return "timeout"
+        elif self.infos is not None:
+            return self.infos
         else:
             return str(self.card)
 

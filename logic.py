@@ -33,6 +33,14 @@ def validate_move(card: Card, board: Card)->bool:
     return (card.color != board.color and card.value == board.value) or \
         (abs(board.value-card.value)==1) # norme=1
 
+def broadcast(queues, item):
+    for q in queues:
+        q.put(item, block=False)
+def flush(queue):
+    queue._wlock.acquire()
+    while not queue.empty():
+        queue.get()
+    queue._wlock.release()
 if __name__ == '__main__':
     cartes = generate_pile(5, 8)
     print(List(cartes))

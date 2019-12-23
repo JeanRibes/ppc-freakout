@@ -11,11 +11,13 @@ class Display(Thread):
         self.conn = socket
         super().__init__()
     def run(self):
-        while True:
+        last_info=None
+        while last_info is None:
             data = self.conn.recv(4096)
             if len(data)>1: 
                 state = GameState.deserialize(data)
                 self.state=state
+                last_info = state.infos
                 print("game state: "+str(state))
                 print("\n:>", end=" ")
 
@@ -38,6 +40,6 @@ class Input(Thread):
 if __name__ == '__main__':
     print("Starting client")
     conn = socket()
-    conn.connect(("0.0.0.0", 1994))
+    conn.connect(("0.0.0.0", 1993))
     Input(conn).start()
     Display(conn).start()
