@@ -1,24 +1,35 @@
-import socket,struct
+import socket, struct
 from array import array
+from kbhit import KBHit
 
-if __name__=='__main__':
-    mms:socket.socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM, proto=socket.IPPROTO_UDP)
-    mms.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    mms.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+from matchmaking import list_servers
 
-    mms.sendto(b'list', ('127.0.0.1', 5600))
-    buf = mms.recv(1024)
-    mms.close()
+if __name__ == '__main__':
+    servers = list_servers()
+    for s in servers:
+        print("[ ] " + str(s))
+    selected = len(servers) - 1
+    kb = KBHit()
 
-    length = struct.unpack('H', buf[:2])[0] # on lit les 4 premiers octets, longueur du payload
-    data = list(struct.iter_unpack('5H', buf[2:]))
-    servers = []
-    for binsock in data:
-        port = binsock[4]
-        ip = ".".join(str(i) for i in binsock[:4])
-        addr = (ip,port)
-        print(addr)
-        servers.append(addr)
-    #print(array.frombytes(buf[4:]))
+    def highlight(selected):
+        n=len(servers)-selected
+        print("\033[{}A\r[*]\033[{}B".format(str(n),str(n)),end='', flush=True)
+    def revert(n):
+        n = len(servers) - selected
+        print("\033[{}A\r[ ]\033[{}B".format(str(n),str(n)),end='', flush=True)
 
-
+    highlight(selected)
+    while True:
+        kc = kb.getarrow()
+        revert(selected)
+        print('\r  ', end='',flush=True)
+        if kc == 0:
+            selected = (selected - 1) % len(servers)
+            #print("\033[1A\r *", end='',flush=True)
+        elif kc == 2:
+            selected = (selected + 1) % len(servers)
+            #print("\033[1B\r *", end='',flush=True)
+        highlight(selected)
+        if kc == 1:
+            break
+    print(servers[selected])
