@@ -6,9 +6,16 @@ from data import *
 from logic import *
 from threading import Lock, Thread
 from multiprocessing import Queue
-from socket import socket, SOL_SOCKET, SO_REUSEADDR, SO_REUSEPORT
+from socket import socket, SOL_SOCKET, SO_REUSEADDR, SO_REUSEPORT, IPPROTO_UDP, AF_INET, SOCK_DGRAM
 from data import *
 
+def signal_matchmaking(state: bytes):
+    mms:socket = socket(family=AF_INET, type=SOCK_DGRAM, proto=IPPROTO_UDP)
+    mms.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    mms.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
+    mms.bind(("0.0.0.0", 1993 + int(random() * 5)))
+    mms.sendto(state, ('127.0.0.1', 5600))
+    mms.close()
 
 class NetworkingReceiver(Thread):
     """
@@ -154,7 +161,9 @@ if __name__ == '__main__':
     listener = socket()  # défaut: STREAM, IPv4
     listener.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
     listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    listener.bind(("0.0.0.0", 1993))
+    listener.bind(("0.0.0.0", 1993+int(random()*5)))
+
+    signal_matchmaking(b'open')
 
     client_sockets = []  # pour broadcast
     nb = NetworkBroadcaster(client_sockets)
