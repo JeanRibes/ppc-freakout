@@ -197,6 +197,10 @@ if __name__ == '__main__':
                 hand.put(pile.pop())
             pileL.release()
             client.hand = hand
+            client.update_hand()
+
+    # démarrage du jeu
+    broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board))
 
     # jeu
     while len(pile) > 0:

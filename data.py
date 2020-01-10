@@ -14,15 +14,16 @@ TYPE_ACTION = 7  # une carte est jouée, sans garantie d'exécution
 
 BROADCAST_TYPES = (TYPE_HAND_CHANGED, TYPE_INFO, TYPE_GAME_END)
 UNICAST_TYPES = (TYPE_HAND_CHANGED, TYPE_TIMEOUT, TYPE_JOIN, TYPE_READY, TYPE_ACTION)
-STRING_TYPES = (TYPE_JOIN, TYPE_INFO, TYPE_GAME_END)
 
+STRING_TYPES = (TYPE_JOIN, TYPE_INFO, TYPE_GAME_END)
+HAND_TYPES = (TYPE_TIMEOUT, TYPE_HAND_CHANGED)
 
 class SerializableMixin:
-    def serialize(self) -> str:
+    def serialize(self) -> bytes:
         return pickle.dumps(self)
 
     @staticmethod
-    def deserialize(string):
+    def deserialize(string: bytes):
         return pickle.loads(string)
 
 
@@ -67,6 +68,15 @@ class Card:
     def __gt__(a, b):
         return a.value > b.value
 
+    def __floordiv__(card, board):
+        """
+        Permet de savoir si on peut jouer une carte si l'autre est sur le plateau
+        :param other: carte
+        :return: vrai si c'est une action valide
+        """
+        return (card.color != board.color and card.value == board.value) or \
+               (abs(board.value - card.value) == 1)
+
 
 class List(list):
     def __init__(self, *args, **kwargs):
@@ -89,23 +99,6 @@ class Hand(List):
 
 class Board(List):
     pass
-
-
-class GameState(SerializableMixin):
-    hand: Hand = []
-    board: Board = None
-    infos: str
-
-    def __init__(self, board, hand=None, infos=None):
-        self.hand = hand
-        self.board = board
-        self.infos = infos
-
-    def __str__(self):
-        if self.infos is None:
-            return str(self.board) + " : " + str(self.hand)
-        else:
-            return self.infos
 
 
 class Pile(List):
@@ -135,7 +128,7 @@ class Message(SerializableMixin):
     type_message: int = -1
     payload = None
 
-    def __init__(self, type_message, payload):
+    def __init__(self, type_message, payload=None):
         assert type_message in (
             TYPE_BOARD_CHANGED,
             TYPE_HAND_CHANGED,
@@ -147,7 +140,7 @@ class Message(SerializableMixin):
             TYPE_ACTION), "Message non valide"
         if type_message == TYPE_BOARD_CHANGED:
             assert type(payload) == Board
-        if type_message in (TYPE_TIMEOUT, TYPE_HAND_CHANGED):
+        if type_message in HAND_TYPES:
             assert type(payload) == Hand
         if type_message in STRING_TYPES:
             assert type(payload) == str
@@ -162,21 +155,16 @@ class Message(SerializableMixin):
     def __str__(self):
         return self.type_message  # TODO: faire un truc beau
 
-    # def check(self):
-    #    if self.type_message in (TYPE_BOARD_CHANGED, TYPE_HAND_CHANGED, TYPE_TIMEOUT, TYPE_JOIN, TYPE_READY):
-    #        if self.type_message == TYPE_BOARD_CHANGED:
-    #            assert type(self.payload) == Board
-    #        if self.type_message in (TYPE_TIMEOUT, TYPE_HAND_CHANGED):
-    #            assert type(self.payload) == Hand
-    #        if self.type_message == TYPE_JOIN:
-    #            assert type(self.payload) == str
-    #        if self.type_message == TYPE_READY:
-    #            assert self.payload is None
-
+    def to_struct(self)->bytes:
+        format = '!B?Bs' # ! -> network order; ? -> booléen de la carte; h-> petit entier; s->string, les infos/options
+        # !  network order
+        # B int, type du message
+        # ? bool, coulur de la carte
+        # B int numétro de la carte
+        # s str infos, à remplacer par board ou hand ...
 
 class ClientMessage(Message):  # TODO: vérifier que c'est la bonne instance de Message
     pass
-
 
 
 class ServerMessage(Message):
@@ -185,7 +173,6 @@ class ServerMessage(Message):
     def __init__(self, infos=None, *args, **kwargs):
         self.infos = infos
         super(Message).__init__(*args, **kwargs)
-
 
 
 class Client(object):
