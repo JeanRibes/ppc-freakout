@@ -6,7 +6,7 @@ TYPE_BOARD_CHANGED = 1  # le message contient Board
 TYPE_HAND_CHANGED = 2  # le message contient Hand
 TYPE_TIMEOUT = 3  # le message contient Hand
 TYPE_INFO = 4  # le serveur broadcaste une information textuelle ("jean a rejoint la partie"
-TYPE_GAME_END = 8 # le message est le nom du joueur qui a gagné
+TYPE_GAME_END = 8  # le message est le nom du joueur qui a gagné
 # messages client -> serveur
 TYPE_JOIN = 5  # le joueur donne son nom d'utilisateur
 TYPE_READY = 6  # le joueur signal qu'il est prêt
@@ -15,6 +15,7 @@ TYPE_ACTION = 7  # une carte est jouée, sans garantie d'exécution
 BROADCAST_TYPES = (TYPE_HAND_CHANGED, TYPE_INFO, TYPE_GAME_END)
 UNICAST_TYPES = (TYPE_HAND_CHANGED, TYPE_TIMEOUT, TYPE_JOIN, TYPE_READY, TYPE_ACTION)
 STRING_TYPES = (TYPE_JOIN, TYPE_INFO, TYPE_GAME_END)
+
 
 class SerializableMixin:
     def serialize(self) -> str:
@@ -177,23 +178,32 @@ class ClientMessage(Message):  # TODO: vérifier que c'est la bonne instance de 
     pass
 
 
+
 class ServerMessage(Message):
-    pass
+    infos: str = None
+
+    def __init__(self, infos=None, *args, **kwargs):
+        self.infos = infos
+        super(Message).__init__(*args, **kwargs)
+
+
 
 class Client(object):
     """
     Objet géré par le serveur
     """
-    socket=None
-    username=None
-    uid=-1
-    hand:Hand
-    def __init__(self,socket,username,uid):
-        self.socket=socket
-        self.uid=uid
-        self.username=username
+    socket = None
+    username = None
+    uid = -1
+    hand: Hand
 
-    def send(self, message:Message):
+    def __init__(self, socket, username, uid):
+        self.socket = socket
+        self.uid = uid
+        self.username = username
+
+    def send(self, message: Message):
         self.socket.send(message.serialize())
+
     def update_hand(self):
         self.send(ServerMessage(type_message=TYPE_HAND_CHANGED, payload=self.hand))

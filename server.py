@@ -213,7 +213,11 @@ if __name__ == '__main__':
         if card in client.hand:
             if True:  # validate_move(card, board):
                 client.hand.remove(card)
-        client.update_hand()
+                client.update_hand()
+                continue # on saute à l'itération suivant
+        pileL.acquire() # sinon la carte n'était pas valide, et
+        client.send(ServerMessage(type_message=TYPE_HAND_CHANGED, payload=pile.pop(), infos="Carte invalide")) # on pénalise le joueur
+        pileL.release()
     # le jeu est maintenant fini
 
     won_client: Client = None
