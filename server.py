@@ -8,7 +8,7 @@ from threading import Lock, Thread
 from multiprocessing import Queue
 from socket import socket, SOL_SOCKET, SO_REUSEADDR, SO_REUSEPORT, IPPROTO_UDP, AF_INET, SOCK_DGRAM
 from data import *
-from matchmaking import signal_matchmaking
+from matchmaking import signal_matchmaking, MetadataServer
 
 
 class NetworkingReceiver(Thread):
@@ -150,12 +150,13 @@ class Lobby(Thread):
 
 
 if __name__ == '__main__':
-    print("starting server")
+    print("starting server", end='', flush=True)
 
     listener = socket()  # défaut: STREAM, IPv4
-    listener.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
-    listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    #listener.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
+    #listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
     port = 1993+int(random()*5)
+    print(" on port "+str(port))
     listener.bind(("0.0.0.0", port))
 
     signal_matchmaking(b'open', port)
@@ -171,16 +172,20 @@ if __name__ == '__main__':
     game_started = lobby.game_started
 
     print("started lobby, awaiting clients")
+    clients_list=[]
+    MetadataServer(port,game_started, clients_list, number_clients).start()
     while not game_started:
         listener.listen(15)
         conn, address = listener.accept()
         client_sockets.append(conn)
         NetworkingReceiver(conn, receive_queue, clients=clients_map).start()
         number_clients += 1
+
     del lobby
     print("game starting")
-    signal_matchmaking(b'close', port)
     # ici, le jeu se lance
+    signal_matchmaking(b'close', port)
+
     cards_needed = number_clients * (5) + 5
 
     pile: Pile = Pile(

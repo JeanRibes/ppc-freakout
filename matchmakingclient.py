@@ -2,34 +2,52 @@ import socket, struct
 from array import array
 from kbhit import KBHit
 
-from matchmaking import list_servers
+from matchmaking import list_servers, get_metadata
 
-if __name__ == '__main__':
+
+def server_chooser():
+    print("Connexion au serveur maître...")
     servers = list_servers()
+
+    if len(servers) == 0:
+        return None
+
+    print("Liste des serveurs :")
     for s in servers:
-        print("[ ] " + str(s))
-    selected = len(servers) - 1
+        print("[ ] " + str(s), end=" ", flush=True)
+        try:
+            metadata = get_metadata(s)
+            print("{} connectés: {}".format(metadata[0], ", ".join(metadata[1])))
+        except socket.timeout:
+            print("Serveur injoignable")
+
+    print("Faites votre choix avec les flèches haut-bas, validez avec droite")
+    selected = 0
     kb = KBHit()
 
     def highlight(selected):
-        n=len(servers)-selected
-        print("\033[{}A\r[*]\033[{}B".format(str(n),str(n)),end='', flush=True)
+        n = 1 + len(servers) - selected
+        print("\033[{}A\r[*]\033[{}B\r".format(str(n), str(n)), end='', flush=True)
+
     def revert(n):
-        n = len(servers) - selected
-        print("\033[{}A\r[ ]\033[{}B".format(str(n),str(n)),end='', flush=True)
+        n = 1 + len(servers) - selected
+        print("\033[{}A\r[ ]\033[{}B\r".format(str(n), str(n)), end='', flush=True)
 
     highlight(selected)
     while True:
         kc = kb.getarrow()
         revert(selected)
-        print('\r  ', end='',flush=True)
+        # print('\r  ', end='',flush=True)
         if kc == 0:
             selected = (selected - 1) % len(servers)
-            #print("\033[1A\r *", end='',flush=True)
         elif kc == 2:
             selected = (selected + 1) % len(servers)
-            #print("\033[1B\r *", end='',flush=True)
         highlight(selected)
-        if kc == 1:
+        if kc in [1, None]:
             break
-    print(servers[selected])
+    print("vous avez choisi ", end="")
+    return servers[selected]
+
+
+if __name__ == '__main__':
+    print(server_chooser())
