@@ -153,7 +153,7 @@ class Message(SerializableMixin):
         self.type_message = type_message
 
     def __str__(self):
-        return self.type_message  # TODO: faire un truc beau
+        return str(self.type_message ) # TODO: faire un truc beau
 
     def to_struct(self)->bytes:
         format = '!B?Bs' # ! -> network order; ? -> booléen de la carte; h-> petit entier; s->string, les infos/options
@@ -172,7 +172,7 @@ class ServerMessage(Message):
 
     def __init__(self, infos=None, *args, **kwargs):
         self.infos = infos
-        super(Message).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
 
 class Client(object):

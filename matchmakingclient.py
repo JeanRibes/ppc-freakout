@@ -1,5 +1,9 @@
 import socket, struct
+import sys
+
 from array import array
+
+from data import ClientMessage, TYPE_JOIN
 from kbhit import KBHit
 
 from matchmaking import list_servers, get_metadata
@@ -45,9 +49,24 @@ def server_chooser():
         highlight(selected)
         if kc in [1, None]:
             break
+    kb.set_normal_term()
     print("vous avez choisi ", end="")
     return servers[selected]
 
 
 if __name__ == '__main__':
-    print(server_chooser())
+    if len(sys.argv) > 1:
+        ip = sys.argv[1]
+        port = sys.argv[2]
+        host = (ip, int(port))
+    else:
+        host = server_chooser()
+        print()
+        if host is None:
+            host=(input('ip: '),int(input('port: ')))
+    username=input("Choisissez un nom d'utilisateur: ")
+
+    gamesock = socket.socket()
+    gamesock.connect(host)
+
+    gamesock.send(ClientMessage(type_message=TYPE_JOIN, payload=username).serialize())

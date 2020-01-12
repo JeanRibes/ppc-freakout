@@ -30,13 +30,16 @@ class NetworkingReceiver(Thread):
     def run(self):
         while True:
             dyn_buf = self.socket.recv(4096)
+            print(dyn_buf)
             msg: ClientMessage = ClientMessage.deserialize(dyn_buf)
             print("action from {}: ".format(self.socket.getpeername()) + str(msg))
             if msg.type_message == TYPE_JOIN:
                 assert self.client == None, "client called JOIN twice !"
+                print(msg.payload+" a rejoint la partie")
                 self.client = Client(username=msg.payload, uid=self.uid, socket=self.socket)
-                self.clients_map[self.uid] = client
-            self.queue.put((msg, self.uid))
+                self.clients_map[self.uid] = self.client
+            self.queue.put(msg)
+            #self.queue.put((msg, self.uid))
 
 
 class NetworkBroadcaster(Thread):

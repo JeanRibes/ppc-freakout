@@ -5,7 +5,7 @@ import typing
 from array import array
 
 udp_port = 1352
-server_ip = "127.0.0.1"
+server_ip = "vps.ribes.ovh"
 
 
 def ipv4_from_ints(ints):
@@ -91,7 +91,7 @@ class MetadataServer(Thread):
         self.sock.bind(('', self.port))
         while not self.game_started:
             request, client = self.sock.recvfrom(255)
-            print(request, str(client))
+            #print(request, str(client))
             if request == b'can i haz metadata ?':
                 self.sock.sendto(
                     metadata_to_bytes(
@@ -113,7 +113,7 @@ def get_metadata(host: typing.Tuple[str, int]) -> typing.Tuple[int, typing.List[
     mms.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     mms.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     mms.sendto(b'can i haz metadata ?', host)
-    mms.settimeout(5)
+    mms.settimeout(1)
     res = mms.recv(1024)
     mms.close()
     return bytes_to_metadata(res)
