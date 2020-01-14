@@ -85,68 +85,21 @@ class ClientTimeout(Thread):
     def run(self) -> None:
         while len(pile) > 0:
             self.needs_penalty = True
-            time.sleep(1)
-            if self.needs_penalty:
+            time.sleep(30)
+
+            self.pileL.acquire()
+            if self.needs_penalty and len(self.pile)>0:
                 print("applying penalty to " + self.client.username)
-                self.pileL.acquire()
                 self.client.hand.put(
                     self.pile.pop()
                 )
-                self.client.send(ServerMessage(type_message=TYPE_TIMEOUT, payload=self.client.hand))
+                self.client.send(ServerMessage(
+                    type_message=TYPE_TIMEOUT,
+                    payload=self.client.hand,
+                    infos="Vous avez mis trop longtemps à vous décider"
+                ))
                 # self.client.update_hand(t_m=TYPE_TIMEOUT)
-                self.pileL.release()
-
-
-class UNUSEDBoardLogicProcessing(Thread):
-    queue: Queue
-    socket: socket = None
-    hand: Hand = None
-    boardL: Lock
-    board: Card
-    pileL: Lock
-    pile: List
-
-    def __init__(self, conn, queue, hand, board, boardL, pile, pileL):
-        self.socket = conn
-        self.queue = queue
-        self.hand = hand
-        self.board = board
-        self.boardL = boardL
-        self.pile = pile
-        self.pileL = pileL
-        super().__init__()
-
-    def run(self):
-        infos = None
-        while len(self.pile) > 0:
-            action = self.queue.get()
-            print("queued" + str(action))
-            infos = None
-            if len(self.hand) == 0:
-                infos = "you won"
-            else:
-                if action.type_action == Action.TYPE_TIMEOUT:
-                    self.pileL.acquire()
-                    self.hand.put(self.pile.pop())
-                    self.pileL.release()
-                elif action.type_action == Action.TYPE_MOVE:
-                    #                print(abs(action.card.value-self.board.value))
-                    if action.card in self.hand:
-                        self.boardL.acquire()
-                        if validate_move(action.card, self.board):
-                            self.hand.remove(action.card)
-                            self.board = action.card
-                            self.boardL.release()
-                        else:
-                            self.boardL.release()
-                            self.pileL.acquire()
-                            self.hand.put(self.pile.pop())  # penalty
-                            self.pileL.release()
-            self.socket.send(GameState(self.hand, self.board, infos).serialize())
-            flush(self.queue)
-        self.socket.send(GameState(self.hand, self.board, "game ended").serialize())
-        self.queue.close()
-
+            self.pileL.release()
 
 class Lobby(Thread):
     receive_queue: Queue
@@ -182,7 +135,7 @@ if __name__ == '__main__':
     listener = socket()  # défaut: STREAM, IPv4
     # listener.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
     # listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    port = 1996  # +int(random()*5)
+    port = 1976  # +int(random()*5)
     print("on port " + str(port))
     listener.bind(("0.0.0.0", port))
 
@@ -238,7 +191,7 @@ if __name__ == '__main__':
         if len(pile) > 5:
             hand = Hand()
             pileL.acquire()
-            for _ in range(10):
+            for _ in range(5):
                 hand.put(pile.pop())
             pileL.release()
             client.hand = hand
@@ -261,22 +214,27 @@ if __name__ == '__main__':
         flush(receive_queue)
         client = clients_map[uid]
 
+        if message.type_message == TYPE_TIMEOUT:
+            client.hand.put(pile.pop())
+            client.update_hand(infos=str(len(pile)))
+            continue
+
         assert message.type_message == TYPE_ACTION, "mauvais type d'action"
         assert type(message.payload) == Card
         card = message.payload
         # traitement
         boardL.acquire()
-        if card in client.hand and True:  # True = validate_move
+        if card in client.hand and is_valid(board, card):  # True = validate_move
             client.timeoutThread.needs_penalty = False
             client.hand.remove(card)
             board.put(card)  # TODO: utiliser boardL
             client.update_hand()
-            broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board))
+            broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board, infos="{} cartes restantes".format(len(pile))))
         else:
             pileL.acquire()  # nécessaire car Pile peut être modifiée par les ClientTimeout(Thread)
             client.hand.put(pile.pop())
             client.send(ServerMessage(type_message=TYPE_HAND_CHANGED, payload=client.hand,
-                                      infos="Carte invalide"))  # on pénalise le joueur
+                                      infos="Carte invalide, reste {}".format(len(pile))))  # on pénalise le joueur
             pileL.release()
         boardL.release()
     # le jeu est maintenant fini
@@ -289,6 +247,6 @@ if __name__ == '__main__':
         elif won_client is not None:
             print("erreur de logique: plusieurs client avaient des mains vides à la fin de la partie")
     if won_client is not None:
-        broadcast_queue.put(ServerMessage(type_message=TYPE_GAME_END, payload=won_client.username))
+        broadcast_queue.put(ServerMessage(type_message=TYPE_GAME_END, payload="Vous avez gagné! "+won_client.username))
     else:
         broadcast_queue.put(ServerMessage(type_message=TYPE_GAME_END, payload="Tout le monde a perdu"))

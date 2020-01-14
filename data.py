@@ -2,7 +2,6 @@
 import pickle
 
 # messages serveur -> client
-TYPE_NULL = 0
 TYPE_BOARD_CHANGED = 1  # le message contient Board
 TYPE_HAND_CHANGED = 2  # le message contient Hand
 TYPE_TIMEOUT = 3  # le message contient Hand
@@ -13,18 +12,16 @@ TYPE_JOIN = 5  # le joueur donne son nom d'utilisateur
 TYPE_READY = 6  # le joueur signal qu'il est prêt
 TYPE_ACTION = 7  # une carte est jouée, sans garantie d'exécution
 
-MESSAGE_TYPES = [
-    "rien"
-    "TYPE_BOARD_CHANGED",
-    "TYPE_HAND_CHANGED",
-    "TYPE_TIMEOUT",
-    "TYPE_INFO",
-    "TYPE_GAME_END",
-    "TYPE_JOIN",
-    "TYPE_READY",
-    "TYPE_ACTION",
-]
-
+MESSAGE_TYPES = {
+    TYPE_BOARD_CHANGED: "TYPE_BOARD_CHANGED",
+    TYPE_HAND_CHANGED: "TYPE_HAND_CHANGED",
+    TYPE_TIMEOUT: "TYPE_TIMEOUT",
+    TYPE_INFO: "TYPE_INFO",
+    TYPE_JOIN: "TYPE_JOIN",
+    TYPE_READY: "TYPE_READY",
+    TYPE_ACTION: "TYPE_ACTION",
+    TYPE_GAME_END: "TYPE_GAME_END",
+}  # merci l'autocomplete
 BROADCAST_TYPES = (TYPE_BOARD_CHANGED, TYPE_INFO, TYPE_GAME_END)
 UNICAST_TYPES = (TYPE_HAND_CHANGED, TYPE_TIMEOUT, TYPE_JOIN, TYPE_READY, TYPE_ACTION)
 
@@ -97,7 +94,7 @@ class Card(SerializableMixin):
         :return: vrai si c'est une action valide
         """
         return (card.color != board.color and card.value == board.value) or \
-               (abs(board.value - card.value) == 1)
+               (abs(board.value - card.value) == 1)  # and card.color == board.color
 
 
 class List(list):
@@ -172,8 +169,6 @@ class Message(SerializableMixin):
             TYPE_ACTION), "Message non valide"
         if type_message == TYPE_BOARD_CHANGED:
             assert type(payload) == Board
-        if type_message in HAND_TYPES:
-            assert type(payload) == Hand
         if type_message in STRING_TYPES:
             assert type(payload) == str
         if type_message == TYPE_READY:
@@ -203,9 +198,11 @@ class ClientMessage(Message):  # TODO: vérifier que c'est la bonne instance de 
 class ServerMessage(Message):
     infos: str = None
 
-    def __init__(self, infos=None, *args, **kwargs):
+    def __init__(self, type_message, payload=None, infos=None, *args, **kwargs):
         self.infos = infos
-        super().__init__(*args, **kwargs)
+        if type_message in HAND_TYPES:
+            assert type(payload) == Hand
+        super().__init__(type_message, payload)
 
 
 class Client(object):
@@ -226,5 +223,5 @@ class Client(object):
     def send(self, message: Message):
         self.socket.send(message.serialize())
 
-    def update_hand(self, t_m=TYPE_HAND_CHANGED):
-        self.send(ServerMessage(type_message=t_m, payload=self.hand))
+    def update_hand(self, t_m=TYPE_HAND_CHANGED, **kwargs):
+        self.send(ServerMessage(type_message=t_m, payload=self.hand, **kwargs))

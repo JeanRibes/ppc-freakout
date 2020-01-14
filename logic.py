@@ -40,11 +40,13 @@ def shuffle(pile):
         out.append(inp.pop(indexes[int(random() * len(inp))]))
     return out
 
-
-def validate_move(card: Card, board: Card) -> bool:
-    return (card.color != board.color and card.value == board.value) or \
-           (card.color == board.color and abs(board.value - card.value) == 1)  # norme=1
-
+def is_valid(board:Board, card:Card):
+    ret = False
+    for cards in board.values():
+        for card_on_board in cards:
+            ret = True if card_on_board // card else ret
+            break
+    return ret
 
 def broadcast(queues, item):
     for q in queues:
