@@ -46,14 +46,13 @@ class NetworkReceiver(Thread):
         while True:
             buf = conn.recv(2048)
             data: Message = ServerMessage.deserialize(buf)
-            print(data)
-            if data.type_message == TYPE_HAND_CHANGED:
-                print(data.payload)
+            #print(data)
+            if data.type_message in [TYPE_TIMEOUT, TYPE_HAND_CHANGED]:
+                print("HAND CHANGED")
                 self.hand = [x.to_tuple() for x in data.payload]
             elif data.type_message == TYPE_BOARD_CHANGED:
                 self.board = data.payload
-                print(self.board)
-
+                print("BOARD_CHANGED")
 
 # board = [[(True, 4), (True, 4), (True, 4), (True, 4)],[(True, 5), (True, 5), (True, 5), (True, 5)],[(False, 5), (False, 5), (False, 5), ],[(False, 9), (False, 9), (False, 9), (False, 9), ],[(True, 1), (True, 1), (True, 1)],]
 
@@ -84,15 +83,17 @@ if __name__ == '__main__':
 
     conn = socket.socket()
     conn.connect(("127.0.0.1", 1996))
-    conn.send(ClientMessage(type_message=TYPE_JOIN, payload="joueur sur gui" + str(random.random())).serialize())
-    conn.send(ClientMessage(type_message=TYPE_READY).serialize())
     server_data = NetworkReceiver(conn)
+    username = "joueur sur gui" + str(random.random())
+    conn.send(ClientMessage(type_message=TYPE_JOIN, payload=username).serialize())
     server_data.start()
     pygame.init()
+    pygame.display.set_caption(username)
     font = pygame.font.SysFont("Noto Sans", 20, 5)
     # font = pygame.font.SysFont(None, 20)
     done = False
     clock = pygame.time.Clock()  # intialisation du timer FPS
+
 
     try:
         assert sys.argv[1] == "-j"
@@ -104,12 +105,14 @@ if __name__ == '__main__':
     # clock.tick(1)
     while not done:
 
+        if selected_index >= len(server_data.hand) and selected_index > 0:
+            selected_index -= 1
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 done = True
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
-                    print("buzz")
                     selected_highlight = True
                 elif event.key == pygame.K_LEFT:
                     selected_index = (selected_index - 1) % len(server_data.hand)
@@ -117,6 +120,8 @@ if __name__ == '__main__':
                     selected_index = (selected_index + 1) % len(server_data.hand)
                 elif event.key == pygame.K_q:
                     sys.exit(0)
+                elif event.key == pygame.K_s: # on lance le jeu
+                    conn.send(ClientMessage(type_message=TYPE_READY).serialize())
             elif event.type == pygame.JOYHATMOTION:
                 selected_index = move_selection(selected_index, event.value[0], server_data.hand)
                 selected_index = move_selection(selected_index, event.value[1], server_data.hand)
@@ -148,21 +153,21 @@ if __name__ == '__main__':
                     server_data.hand[selected_index] = (
                     server_data.hand[selected_index][0], server_data.hand[selected_index][1] - 1)
                 if event.button == 9:
-                    server_data.hand.append((True, 5))
+                    conn.send(ClientMessage(type_message=TYPE_READY).serialize())
 
-        highlight(screen, hy, x0 + 50 * selected_index, selected_highlight)
-        dessiner_main(screen, y0, x0, server_data.hand, font)
-        dessiner_board(screen, y0 + 90, x0, server_data.board, font)
+
 
         if selected_highlight:  # une carte a été sélectionnée
             # list_cartes.pop(selected_index)
             conn.send(ClientMessage(type_message=TYPE_ACTION,
                                     payload=Card.from_tuple(server_data.hand[selected_index])
                                     ).serialize())  # on envoie notre action au serveur
+            print("sending action")
             selected_highlight = False
-            if selected_index > len(server_data.hand) - 1:
-                selected_index -= 1
-            continue
+
+        highlight(screen, hy, x0 + 50 * selected_index, selected_highlight)
+        dessiner_main(screen, y0, x0, server_data.hand, font)
+        dessiner_board(screen, y0 + 90, x0, server_data.board, font)
 
         pygame.display.update()
         pygame.display.flip()  # double-buffered

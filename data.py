@@ -2,6 +2,7 @@
 import pickle
 
 # messages serveur -> client
+TYPE_NULL = 0
 TYPE_BOARD_CHANGED = 1  # le message contient Board
 TYPE_HAND_CHANGED = 2  # le message contient Hand
 TYPE_TIMEOUT = 3  # le message contient Hand
@@ -11,6 +12,18 @@ TYPE_GAME_END = 8  # le message est le nom du joueur qui a gagné
 TYPE_JOIN = 5  # le joueur donne son nom d'utilisateur
 TYPE_READY = 6  # le joueur signal qu'il est prêt
 TYPE_ACTION = 7  # une carte est jouée, sans garantie d'exécution
+
+MESSAGE_TYPES = [
+    "rien"
+    "TYPE_BOARD_CHANGED",
+    "TYPE_HAND_CHANGED",
+    "TYPE_TIMEOUT",
+    "TYPE_INFO",
+    "TYPE_GAME_END",
+    "TYPE_JOIN",
+    "TYPE_READY",
+    "TYPE_ACTION",
+]
 
 BROADCAST_TYPES = (TYPE_BOARD_CHANGED, TYPE_INFO, TYPE_GAME_END)
 UNICAST_TYPES = (TYPE_HAND_CHANGED, TYPE_TIMEOUT, TYPE_JOIN, TYPE_READY, TYPE_ACTION)
@@ -172,7 +185,7 @@ class Message(SerializableMixin):
         self.type_message = type_message
 
     def __str__(self):
-        return str(self.type_message)  # TODO: faire un truc beau
+        return MESSAGE_TYPES[self.type_message]  # TODO: faire un truc beau
 
     def to_struct(self) -> bytes:
         format = '!B?Bs'  # ! -> network order; ? -> booléen de la carte; h-> petit entier; s->string, les infos/options
@@ -203,6 +216,7 @@ class Client(object):
     username = None
     uid = -1
     hand: Hand
+    timeoutThread = None
 
     def __init__(self, socket, username, uid):
         self.socket = socket
@@ -212,5 +226,5 @@ class Client(object):
     def send(self, message: Message):
         self.socket.send(message.serialize())
 
-    def update_hand(self):
-        self.send(ServerMessage(type_message=TYPE_HAND_CHANGED, payload=self.hand))
+    def update_hand(self, t_m=TYPE_HAND_CHANGED):
+        self.send(ServerMessage(type_message=t_m, payload=self.hand))

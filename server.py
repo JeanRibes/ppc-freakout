@@ -6,7 +6,7 @@ from data import *
 from logic import *
 from threading import Lock, Thread
 from multiprocessing import Queue
-from socket import socket, SOL_SOCKET, SO_REUSEADDR, SO_REUSEPORT, IPPROTO_UDP, AF_INET, SOCK_DGRAM
+from socket import socket, SOL_SOCKET, SO_REUSEADDR, SO_REUSEPORT, IPPROTO_UDP, AF_INET, SOCK_DGRAM, timeout
 from data import *
 from matchmaking import signal_matchmaking, MetadataServer
 
@@ -24,8 +24,8 @@ class NetworkingReceiver(Thread):
     running = True
 
     def __init__(self, socket, queue: Queue, clients: dict):
-        self.uid = random() * 65553 # et pas dans les attributs sinon c'est toujour le même
-        print("new NetworkReceiver: "+str(self.uid))
+        self.uid = random() * 65553  # et pas dans les attributs sinon c'est toujour le même
+        print("new NetworkReceiver: " + str(self.uid))
         self.queue = queue
         self.socket = socket
         self.clients_map = clients
@@ -61,25 +61,40 @@ class NetworkBroadcaster(Thread):
 
     def run(self) -> None:
         while True:
-            to_broadcast:ServerMessage = self.queue.get(block=True)
+            to_broadcast: ServerMessage = self.queue.get(block=True)
             assert type(
                 to_broadcast) == ServerMessage and to_broadcast.type_message in BROADCAST_TYPES, "mauvais type de message broadcast"
-            print(to_broadcast)
             for socket in self.client_sockets:
                 socket.send(to_broadcast.serialize())
                 # sock.setblocking(False) à voir si ça permet de faire recv() en bloquant
 
 
 class ClientTimeout(Thread):
-    client_socket: socket
-    needs_penalty: bool = False
+    client: Client
+    needs_penalty: bool = None
+    pile: Pile = None
+    pileL: Lock = None
+
+    def __init__(self, client, pile: Pile, pileL: Lock, *args, **kwargs):
+        self.client = client
+        self.needs_penalty = False
+        self.pile = pile
+        self.pileL = pileL
+        super().__init__(daemon=True)
 
     def run(self) -> None:
-        while True:
+        while len(pile) > 0:
             self.needs_penalty = True
-            time.sleep(15)
+            time.sleep(1)
             if self.needs_penalty:
-                self.client_socket.send(Action(type_action=Action.TYPE_TIMEOUT))
+                print("applying penalty to " + self.client.username)
+                self.pileL.acquire()
+                self.client.hand.put(
+                    self.pile.pop()
+                )
+                self.client.send(ServerMessage(type_message=TYPE_TIMEOUT, payload=self.client.hand))
+                # self.client.update_hand(t_m=TYPE_TIMEOUT)
+                self.pileL.release()
 
 
 class UNUSEDBoardLogicProcessing(Thread):
@@ -137,13 +152,14 @@ class Lobby(Thread):
     receive_queue: Queue
     broadcast_queue: Queue
     game_started = False
-    clients_ready = 0
+    clients_ready = None
     number_clients = None
 
     def __init__(self, rcv_q, brd_queue, n):
         self.receive_queue = rcv_q
         self.broadcast_queue = brd_queue
         self.number_clients = n
+        self.clients_ready = 0
         super().__init__(daemon=True)
 
     def run(self) -> None:
@@ -167,7 +183,7 @@ if __name__ == '__main__':
     # listener.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
     # listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
     port = 1996  # +int(random()*5)
-    print(" on port " + str(port))
+    print("on port " + str(port))
     listener.bind(("0.0.0.0", port))
 
     signal_matchmaking(b'open', port)
@@ -184,14 +200,20 @@ if __name__ == '__main__':
     print("started lobby, awaiting clients")
     clients_list = []
     MetadataServer(port, lobby.game_started, clients_list, number_clients).start()
-    while number_clients < 2:
-        print(lobby.game_started)
-        listener.listen(15)
-        conn, address = listener.accept()
-        broadcaster.client_sockets.append(conn) # TODO: utiliser un Lock ici pour ne pas faire de problèmes entre Threads
+    listener.settimeout(1)
+    listener.listen(15)
+    while number_clients < 1 or number_clients > lobby.clients_ready:
+        print("{}/{} clients ready".format(lobby.clients_ready, number_clients))
+        try:
+            conn, address = listener.accept()
+        except timeout:
+            continue
+        broadcaster.client_sockets.append(
+            conn)  # TODO: utiliser un Lock ici pour ne pas faire de problèmes entre Threads
         NetworkingReceiver(conn, receive_queue, clients=clients_map).start()
         number_clients += 1
     print("game initializing")
+    listener.settimeout(None)
     # ici, le jeu se lance , tout le monde a utilisé TYPE_READY
     signal_matchmaking(b'close', port)
 
@@ -226,38 +248,47 @@ if __name__ == '__main__':
     # démarrage du jeu
     print("game starting")
     broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board))
+    for client in clients_map.values():
+        tt = ClientTimeout(client, pile, pileL)
+        tt.start()
+        client.timeoutThread = tt
 
     # jeu
-    while len(pile) > 0:
+    while len(pile) > 0: #TODO: calculer le nombre de cartes restantes dans tout le jeu
         # réception du message
         message, uid = receive_queue.get()
+        print("processing message " + str(message))
         flush(receive_queue)
-
         client = clients_map[uid]
 
         assert message.type_message == TYPE_ACTION, "mauvais type d'action"
         assert type(message.payload) == Card
         card = message.payload
         # traitement
-        if card in client.hand:
-            if True:  # validate_move(card, board):
-                client.hand.remove(card)
-                board.put(card) # TODO: utiliser boardL
-                client.update_hand()
-                broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board))
-                continue  # on saute à l'itération suivant
-        pileL.acquire() # sinon la carte n'était pas valide, et
-        client.hand.put(pile.pop())
-        client.send(ServerMessage(type_message=TYPE_HAND_CHANGED, payload=client.hand,
-                                  infos="Carte invalide"))  # on pénalise le joueur
-        pileL.release()
+        boardL.acquire()
+        if card in client.hand and True:  # True = validate_move
+            client.timeoutThread.needs_penalty = False
+            client.hand.remove(card)
+            board.put(card)  # TODO: utiliser boardL
+            client.update_hand()
+            broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board))
+        else:
+            pileL.acquire()  # nécessaire car Pile peut être modifiée par les ClientTimeout(Thread)
+            client.hand.put(pile.pop())
+            client.send(ServerMessage(type_message=TYPE_HAND_CHANGED, payload=client.hand,
+                                      infos="Carte invalide"))  # on pénalise le joueur
+            pileL.release()
+        boardL.release()
     # le jeu est maintenant fini
 
     won_client: Client = None
-    for _, client in clients_map:
+    for client in clients_map.values():
         if len(client.hand) == 0 and won_client is None:
             won_client = client
             print(won_client.username + " a gagné !!")
         elif won_client is not None:
             print("erreur de logique: plusieurs client avaient des mains vides à la fin de la partie")
-    broadcast_queue.put(ServerMessage(type_message=TYPE_GAME_END, payload=won_client.username))
+    if won_client is not None:
+        broadcast_queue.put(ServerMessage(type_message=TYPE_GAME_END, payload=won_client.username))
+    else:
+        broadcast_queue.put(ServerMessage(type_message=TYPE_GAME_END, payload="Tout le monde a perdu"))
