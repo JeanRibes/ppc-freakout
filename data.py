@@ -12,11 +12,12 @@ TYPE_JOIN = 5  # le joueur donne son nom d'utilisateur
 TYPE_READY = 6  # le joueur signal qu'il est prêt
 TYPE_ACTION = 7  # une carte est jouée, sans garantie d'exécution
 
-BROADCAST_TYPES = (TYPE_HAND_CHANGED, TYPE_INFO, TYPE_GAME_END)
+BROADCAST_TYPES = (TYPE_BOARD_CHANGED, TYPE_INFO, TYPE_GAME_END)
 UNICAST_TYPES = (TYPE_HAND_CHANGED, TYPE_TIMEOUT, TYPE_JOIN, TYPE_READY, TYPE_ACTION)
 
 STRING_TYPES = (TYPE_JOIN, TYPE_INFO, TYPE_GAME_END)
 HAND_TYPES = (TYPE_TIMEOUT, TYPE_HAND_CHANGED)
+
 
 class SerializableMixin:
     def serialize(self) -> bytes:
@@ -27,7 +28,7 @@ class SerializableMixin:
         return pickle.loads(string)
 
 
-class Card:
+class Card(SerializableMixin):
     value: int = 0
     color: bool = True
     """
@@ -45,6 +46,14 @@ class Card:
             assert string[0] in ('R', 'B'), "Mauvais format: (R|B)[0-9]+"
             self.color = string[0] == 'R'  # prog stylée ...
             self.value = int(string[1:])
+
+    def to_tuple(self) -> tuple:
+        return self.color, self.value
+
+    @staticmethod
+    def from_tuple(card_tupl):
+        # type: (tuple)->Card
+        return Card(*card_tupl)
 
     @property
     def blue(self) -> bool:
@@ -93,11 +102,21 @@ class List(list):
         return self.append(x)
 
 
+class Board(dict):  # un dictionnaire de listes
+    def put(self, card: Card):
+        if self.get(str(card), None) is None:
+            self[str(card)] = [card]
+        else:
+            self[str(card)].append(card)
+
+    def exists(self, card: Card):
+        if self[str(card)] is not None:
+            return len(self[str(card)]) > 0
+        else:
+            return False
+
+
 class Hand(List):
-    pass
-
-
-class Board(List):
     pass
 
 
@@ -153,15 +172,16 @@ class Message(SerializableMixin):
         self.type_message = type_message
 
     def __str__(self):
-        return str(self.type_message ) # TODO: faire un truc beau
+        return str(self.type_message)  # TODO: faire un truc beau
 
-    def to_struct(self)->bytes:
-        format = '!B?Bs' # ! -> network order; ? -> booléen de la carte; h-> petit entier; s->string, les infos/options
+    def to_struct(self) -> bytes:
+        format = '!B?Bs'  # ! -> network order; ? -> booléen de la carte; h-> petit entier; s->string, les infos/options
         # !  network order
         # B int, type du message
         # ? bool, coulur de la carte
         # B int numétro de la carte
         # s str infos, à remplacer par board ou hand ...
+
 
 class ClientMessage(Message):  # TODO: vérifier que c'est la bonne instance de Message
     pass

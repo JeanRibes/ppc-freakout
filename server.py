@@ -18,28 +18,35 @@ class NetworkingReceiver(Thread):
     socket = None
     queue: Queue = None
     clients_map = None
-    uid = random() * 65553
+    uid = None
     client = None  # le client géré par ce Thread
 
+    running = True
+
     def __init__(self, socket, queue: Queue, clients: dict):
+        self.uid = random() * 65553 # et pas dans les attributs sinon c'est toujour le même
+        print("new NetworkReceiver: "+str(self.uid))
         self.queue = queue
         self.socket = socket
         self.clients_map = clients
         super().__init__()
 
     def run(self):
-        while True:
+        while self.running:
             dyn_buf = self.socket.recv(4096)
-            print(dyn_buf)
+            if len(dyn_buf) <= 0:
+                self.running = False
+                continue
+            # print(dyn_buf)
             msg: ClientMessage = ClientMessage.deserialize(dyn_buf)
             print("action from {}: ".format(self.socket.getpeername()) + str(msg))
             if msg.type_message == TYPE_JOIN:
                 assert self.client == None, "client called JOIN twice !"
-                print(msg.payload+" a rejoint la partie")
+                print(msg.payload + " a rejoint la partie")
                 self.client = Client(username=msg.payload, uid=self.uid, socket=self.socket)
                 self.clients_map[self.uid] = self.client
-            self.queue.put(msg)
-            #self.queue.put((msg, self.uid))
+            self.queue.put((msg, self.uid))
+            # self.queue.put((msg, self.uid))
 
 
 class NetworkBroadcaster(Thread):
@@ -47,19 +54,19 @@ class NetworkBroadcaster(Thread):
     Se charge d'envoyer à tous les clients les modifications du plateau
     """
     queue: Queue = Queue()
-    client_sockets: typing.List[socket] = None
+    client_sockets: typing.List[socket] = []
 
-    def __init__(self, chaussettes):
-        self.sockets = chaussettes
+    def __init__(self):
         super().__init__(daemon=True)
 
     def run(self) -> None:
         while True:
-            to_broadcast = self.queue.get(block=True)
+            to_broadcast:ServerMessage = self.queue.get(block=True)
             assert type(
                 to_broadcast) == ServerMessage and to_broadcast.type_message in BROADCAST_TYPES, "mauvais type de message broadcast"
-            for socket in self.sockets:
-                socket.send(to_broadcast)
+            print(to_broadcast)
+            for socket in self.client_sockets:
+                socket.send(to_broadcast.serialize())
                 # sock.setblocking(False) à voir si ça permet de faire recv() en bloquant
 
 
@@ -75,7 +82,7 @@ class ClientTimeout(Thread):
                 self.client_socket.send(Action(type_action=Action.TYPE_TIMEOUT))
 
 
-class BoardLogicProcessing(Thread):
+class UNUSEDBoardLogicProcessing(Thread):
     queue: Queue
     socket: socket = None
     hand: Hand = None
@@ -140,53 +147,52 @@ class Lobby(Thread):
         super().__init__(daemon=True)
 
     def run(self) -> None:
-        while not self.game_started:
-            message: ClientMessage = self.receive_queue.get()
+        while True:
+            message, uid = self.receive_queue.get()
             if message.type_message == TYPE_JOIN:
                 s = "{} a rejoint la partie !".format(message.payload)
                 self.broadcast_queue.put(ServerMessage(type_message=TYPE_INFO, payload=s))
                 print(s)
             elif message.type_message == TYPE_READY:
+                print("1 ready")
                 self.clients_ready += 1
-                if self.clients_ready == self.number_clients and self.clients_ready >= 2:
-                    self.game_started = True
+                # if self.clients_ready == self.number_clients and self.clients_ready >= 1:
+                #    self.game_started = True
 
 
 if __name__ == '__main__':
     print("starting server", end='', flush=True)
 
     listener = socket()  # défaut: STREAM, IPv4
-    #listener.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
-    #listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    port = 1993+int(random()*5)
-    print(" on port "+str(port))
+    # listener.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
+    # listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    port = 1996  # +int(random()*5)
+    print(" on port " + str(port))
     listener.bind(("0.0.0.0", port))
 
     signal_matchmaking(b'open', port)
 
-    client_sockets = []  # pour broadcast
-    nb = NetworkBroadcaster(client_sockets)
-    broadcast_queue = nb.queue
+    broadcaster = NetworkBroadcaster()
+    broadcaster.start()
+    broadcast_queue = broadcaster.queue
     receive_queue = Queue()
     number_clients = 0
     clients_map: typing.Dict[int, Client] = {}  # contient une map des clients avec leur uid et leur socket & username
     lobby = Lobby(rcv_q=receive_queue, brd_queue=broadcast_queue, n=number_clients)
     lobby.start()
-    game_started = lobby.game_started
 
     print("started lobby, awaiting clients")
-    clients_list=[]
-    MetadataServer(port,game_started, clients_list, number_clients).start()
-    while not game_started:
+    clients_list = []
+    MetadataServer(port, lobby.game_started, clients_list, number_clients).start()
+    while number_clients < 2:
+        print(lobby.game_started)
         listener.listen(15)
         conn, address = listener.accept()
-        client_sockets.append(conn)
+        broadcaster.client_sockets.append(conn) # TODO: utiliser un Lock ici pour ne pas faire de problèmes entre Threads
         NetworkingReceiver(conn, receive_queue, clients=clients_map).start()
         number_clients += 1
-
-    del lobby
-    print("game starting")
-    # ici, le jeu se lance
+    print("game initializing")
+    # ici, le jeu se lance , tout le monde a utilisé TYPE_READY
     signal_matchmaking(b'close', port)
 
     cards_needed = number_clients * (5) + 5
@@ -196,23 +202,29 @@ if __name__ == '__main__':
             generate_pile(cards_needed, 10)
         )
     )
-    board: Board = Board([pile.pop()])
+
+    board: Board = Board()
+    first_card = pile.pop()
+    board.put(first_card)
 
     boardL = Lock()
     pileL = Lock()
 
     # distribution des cartes
-    for _, client in clients_map:
+    print(clients_map)
+    for _, client in clients_map.items():
         if len(pile) > 5:
             hand = Hand()
             pileL.acquire()
-            for _ in range(5):
+            for _ in range(10):
                 hand.put(pile.pop())
             pileL.release()
             client.hand = hand
             client.update_hand()
+            print(client.hand)
 
     # démarrage du jeu
+    print("game starting")
     broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board))
 
     # jeu
@@ -222,18 +234,22 @@ if __name__ == '__main__':
         flush(receive_queue)
 
         client = clients_map[uid]
-        card = message.payload
 
         assert message.type_message == TYPE_ACTION, "mauvais type d'action"
-        assert type(card) == Card
+        assert type(message.payload) == Card
+        card = message.payload
         # traitement
         if card in client.hand:
             if True:  # validate_move(card, board):
                 client.hand.remove(card)
+                board.put(card) # TODO: utiliser boardL
                 client.update_hand()
-                continue # on saute à l'itération suivant
+                broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board))
+                continue  # on saute à l'itération suivant
         pileL.acquire() # sinon la carte n'était pas valide, et
-        client.send(ServerMessage(type_message=TYPE_HAND_CHANGED, payload=pile.pop(), infos="Carte invalide")) # on pénalise le joueur
+        client.hand.put(pile.pop())
+        client.send(ServerMessage(type_message=TYPE_HAND_CHANGED, payload=client.hand,
+                                  infos="Carte invalide"))  # on pénalise le joueur
         pileL.release()
     # le jeu est maintenant fini
 
@@ -241,7 +257,7 @@ if __name__ == '__main__':
     for _, client in clients_map:
         if len(client.hand) == 0 and won_client is None:
             won_client = client
-            print(won_client.username+" a gagné !!")
+            print(won_client.username + " a gagné !!")
         elif won_client is not None:
             print("erreur de logique: plusieurs client avaient des mains vides à la fin de la partie")
     broadcast_queue.put(ServerMessage(type_message=TYPE_GAME_END, payload=won_client.username))

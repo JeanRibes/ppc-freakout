@@ -23,9 +23,11 @@ def generate_pile_fixed(max_value):
 
 
 def generate_pile(N, max_value):
-    return generate_pile_random(N, max_value).extend(
+    #return generate_pile_fixed(max_value)
+    pile = generate_pile_random(N, max_value)
+    pile.extend(
         generate_pile_fixed(max_value))  # toutes les cartes possibles plus un nombre de cartes alatoires
-    return shuffle(generate_pile_fixed(max_value))
+    return pile
 
 
 def shuffle(pile):
