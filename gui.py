@@ -5,6 +5,7 @@ from threading import Thread
 import pygame
 
 from data import *
+from matchmaking import find_server
 
 
 def dessiner_carte(screen, couleur, chiffre, font, y, x):
@@ -103,7 +104,7 @@ selected_highlight = False
 if __name__ == '__main__':
 
     conn = socket.socket()
-    conn.connect(("127.0.0.1", 1976))
+    conn.connect(find_server())
     server_data = NetworkReceiver(conn)
     username = "joueur sur gui" + str(random.random())
     server_data.message = username

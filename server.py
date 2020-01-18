@@ -1,14 +1,14 @@
 #!/usr/bin/python3
 import time
 import typing
+from queue import Queue
 
 from data import *
 from logic import *
 from threading import Lock, Thread
-from multiprocessing import Queue
 from socket import socket, SOL_SOCKET, SO_REUSEADDR, SO_REUSEPORT, IPPROTO_UDP, AF_INET, SOCK_DGRAM, timeout
 from data import *
-from matchmaking import signal_matchmaking, MetadataServer
+from matchmaking import BroadcastGame
 
 
 class NetworkingReceiver(Thread):
@@ -40,12 +40,12 @@ class NetworkingReceiver(Thread):
             # print(dyn_buf)
             msg: ClientMessage = ClientMessage.deserialize(dyn_buf)
             print("action from {}: ".format(self.socket.getpeername()) + str(msg))
+            self.queue.put((msg, self.uid))
             if msg.type_message == TYPE_JOIN:
                 assert self.client == None, "client called JOIN twice !"
                 print(msg.payload + " a rejoint la partie")
                 self.client = Client(username=msg.payload, uid=self.uid, socket=self.socket)
                 self.clients_map[self.uid] = self.client
-            self.queue.put((msg, self.uid))
             # self.queue.put((msg, self.uid))
 
 
@@ -116,8 +116,9 @@ class Lobby(Thread):
         super().__init__(daemon=True)
 
     def run(self) -> None:
-        while True:
+        while not self.game_started:
             message, uid = self.receive_queue.get()
+            print("lobby got "+str(message))
             if message.type_message == TYPE_JOIN:
                 s = "{} a rejoint la partie !".format(message.payload)
                 self.broadcast_queue.put(ServerMessage(type_message=TYPE_INFO, payload=s))
@@ -135,11 +136,12 @@ if __name__ == '__main__':
     listener = socket()  # défaut: STREAM, IPv4
     # listener.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
     # listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    port = 1976  # +int(random()*5)
+    port = 2000 + int(random()*5)
     print("on port " + str(port))
     listener.bind(("0.0.0.0", port))
 
-    signal_matchmaking(b'open', port)
+    game_announcer = BroadcastGame(listener.getsockname())
+    game_announcer.start()
 
     broadcaster = NetworkBroadcaster()
     broadcaster.start()
@@ -152,11 +154,10 @@ if __name__ == '__main__':
 
     print("started lobby, awaiting clients")
     clients_list = []
-    MetadataServer(port, lobby.game_started, clients_list, number_clients).start()
     listener.settimeout(1)
     listener.listen(15)
     while number_clients < 1 or number_clients > lobby.clients_ready:
-        print("{}/{} clients ready".format(lobby.clients_ready, number_clients))
+        #print("{}/{} clients ready".format(lobby.clients_ready, number_clients))
         try:
             conn, address = listener.accept()
         except timeout:
@@ -168,7 +169,7 @@ if __name__ == '__main__':
     print("game initializing")
     listener.settimeout(None)
     # ici, le jeu se lance , tout le monde a utilisé TYPE_READY
-    signal_matchmaking(b'close', port)
+    game_announcer.run=False # on arrête le broadcast UDP
 
     cards_needed = number_clients * (5) + 5
 
@@ -200,6 +201,7 @@ if __name__ == '__main__':
 
     # démarrage du jeu
     print("game starting")
+    lobby.game_started=True
     broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board))
     for client in clients_map.values():
         tt = ClientTimeout(client, pile, pileL)
@@ -209,9 +211,10 @@ if __name__ == '__main__':
     # jeu
     while len(pile) > 0: #TODO: calculer le nombre de cartes restantes dans tout le jeu
         # réception du message
-        message, uid = receive_queue.get()
+        data = receive_queue.get(block=True)
+        message, uid = data
         print("processing message " + str(message))
-        flush(receive_queue)
+        #flush(receive_queue)
         client = clients_map[uid]
 
         if message.type_message == TYPE_TIMEOUT:
