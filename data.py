@@ -221,7 +221,7 @@ class Client(object):
         self.username = username
 
     def send(self, message: Message):
-        self.socket.send(message.serialize())
+        self.socket.send(message.serialize()) # si plus de connection TCP, BrokenPipeError
 
     def update_hand(self, t_m=TYPE_HAND_CHANGED, **kwargs):
         self.send(ServerMessage(type_message=t_m, payload=self.hand, **kwargs))

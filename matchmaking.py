@@ -39,7 +39,7 @@ class BroadcastGame(Thread):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # de permission quand on ferme mal le jeu
         while self.run:
             sock.sendto(socket_to_bytes(*self.tcp_addr), ('255.255.255.255', udp_announce_port))
-            time.sleep(1)
+            time.sleep(3)
 
 
 def find_server():
@@ -51,7 +51,7 @@ def find_server():
 
     sock.bind(('', udp_announce_port))  # on veut tout recevoir
 
-    sock.settimeout(5)
+    sock.settimeout(10)
     try:
         msg, addr = sock.recvfrom(4096)
         game_addr = bytes_to_socket(msg)
@@ -63,6 +63,9 @@ def find_server():
         print("Essai de l'adresse par défaut")
         return ('127.0.0.1', 1976)
 
+class FindGame(Thread):
+    def run(self) -> None:
+        self.found_server = find_server()
 
 if __name__ == '__main__':
     BroadcastGame().start()

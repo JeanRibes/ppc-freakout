@@ -1,11 +1,12 @@
 import random
 import socket
 import sys
-from threading import Thread
+from threading import Thread, Event
 import pygame
+import pygameMenu
 
 from data import *
-from matchmaking import find_server
+from matchmaking import find_server, FindGame
 
 
 def dessiner_carte(screen, couleur, chiffre, font, y, x):
@@ -32,6 +33,7 @@ def dessiner_main(screen, x0, y0, cartes, font):
 
 def afficher_message(screen, message, font):
     if message is not None:
+        print(f"affichage du message : {message}")
         texte = font.render(message, True, (255, 255, 255))
         texte_rect = texte.get_rect()
         texte_rect.centerx = screen.get_width() // 2
@@ -50,6 +52,7 @@ class NetworkReceiver(Thread):
     board: Board = Board()
     message = None
     game_finished = False
+    game_ready_event = Event()
 
     def __init__(self, conn):
         self.conn = conn
@@ -65,6 +68,7 @@ class NetworkReceiver(Thread):
                 self.hand = [x.to_tuple() for x in data.payload]
             elif data.type_message == TYPE_BOARD_CHANGED:
                 self.board = data.payload
+                self.game_ready_event.set()
             elif data.type_message in STRING_TYPES:
                 self.message = data.payload
                 print("--->" + data.payload)
@@ -100,42 +104,110 @@ y0 = 10
 selected_index = 0
 hy = y0
 selected_highlight = False
+police = "Noto Sans"
+menu_running = True
 
 if __name__ == '__main__':
-
-    conn = socket.socket()
-    conn.connect(find_server())
-    server_data = NetworkReceiver(conn)
-    username = "joueur sur gui" + str(random.random())
-    server_data.message = username
-    conn.send(ClientMessage(type_message=TYPE_JOIN, payload=username).serialize())
-    server_data.start()
-    pygame.init()
-    pygame.display.set_caption(username)
-    font = pygame.font.SysFont("Noto Sans", 20, 5)
-    # font = pygame.font.SysFont(None, 20)
+    server_finder = FindGame(daemon=True)
+    server_finder.start()
+    pygame.init()  # initialisation des ressources
+    pygame.display.set_caption("PPC Freak Out!")
+    font = pygame.font.SysFont(police, 20, 5)
     done = False
     clock = pygame.time.Clock()  # intialisation du timer FPS
 
+
+    #### fin
+
+    # menu du jeu
+
+    def bg_func():
+        screen.fill((128, 0, 128))
+
+
+    # setup du menu
+    main = pygameMenu.Menu(screen, 1000, 500, police, "Freak Out !", True, bgfun=bg_func, menu_height=400,
+                           menu_width=900)
+    main._onclose = main.disable
+    main.add_text_input(title="nom d'utilisateur: ", textinput_id='username', default="", input_underline='_',
+                        maxchar=15, align=pygameMenu.locals.ALIGN_LEFT)
+    main.add_selector("Joystick", values=[('On', 0), ('Off', 1)], selector_id='joystick')
+    main.add_option('Jouer', main.disable)
+    main.add_option('Quitter', pygameMenu.events.EXIT)
+
+    main.mainloop()  # 1er affichage du menu
+    main.disable(closelocked=True)
+    username = main.get_input_data()['username']
+    joystick = main.get_input_data()['joystick'][0] == 'On'
+    print(f"joystick : {joystick}, username={username}, input_date: {main.get_input_data()}")
     try:
-        assert sys.argv[1] == "-j"
-        j = pygame.joystick.Joystick(0)
-        j.init()
+        if len(sys.argv) > 2:
+            if sys.argv[1] == "-j":
+                joystick = True
+        if joystick:
+            j = pygame.joystick.Joystick(0)
+            j.init()
     except:
-        pass
-    # while len(server_data.hand)==0:
-    # clock.tick(1)
+        j = None
+    # configuration du jeu finie
+
+    # démarrage du réseau
+    afficher_message(screen, "Connexion au serveur de jeu", font)
+    pygame.display.update()
+    pygame.display.flip()
+    conn = socket.socket()
+    server_finder.join() # attend le timeout de l'écoute du broadcast
+
+    conn.connect(server_finder.found_server)  # écoute le broadast local pour découvrir le serveur
+    server_data = NetworkReceiver(conn)
+    server_data.message = username
+    conn.send(ClientMessage(type_message=TYPE_JOIN, payload=username).serialize())
+    #
+    # lobby: attente des autres joueurs
+    start_menu = pygameMenu.TextMenu(screen, 700, 400, police, "Lobby", bgfun=bg_func)
+
+
+    def im_ready():
+        print('sending ready')
+        start_menu.disable(closelocked=True)
+        conn.send(ClientMessage(type_message=TYPE_READY).serialize())
+
+
+
+    start_menu.add_option("Demarrer", im_ready)
+    start_menu.add_option('Quitter', pygameMenu.events.EXIT)
+
+    # pendant l'attente on initialise le menu 'ESC' du jeu
+    game_menu = pygameMenu.Menu(screen, 800, 400, police, "Freak Out !", True, bgfun=bg_func, menu_height=300,
+                                menu_width=700)
+    game_menu._onclose = game_menu.disable
+    game_menu.add_option('Quitter', pygameMenu.events.EXIT)
+    game_menu.add_option('Retour au jeu', game_menu.disable)
+    game_menu.disable()
+
+    server_data.start()
+
+
+    start_menu.mainloop()
+    afficher_message(screen, "Attente des autres joueurs", font)
+    pygame.display.update()
+    pygame.display.flip()
+    print("starting game")
+    server_data.game_ready_event.wait()
     while not done:
 
         if selected_index >= len(server_data.hand) and selected_index > 0:
             selected_index -= 1
-
-        for event in pygame.event.get():
+        events = pygame.event.get()
+        game_menu.mainloop(events)  # pour que le menu puisse s'afficher si on appuie sur ESC
+        for event in events:
             if event.type == pygame.QUIT:
                 sys.exit(0)
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
                     selected_highlight = True
+                elif event.key == pygame.K_ESCAPE:
+                    game_menu.enable()
                 elif event.key == pygame.K_LEFT:
                     selected_index = (selected_index - 1) % len(server_data.hand)
                 elif event.key == pygame.K_RIGHT:
@@ -151,7 +223,7 @@ if __name__ == '__main__':
             elif event.type == pygame.JOYHATMOTION:
                 selected_index = move_selection(selected_index, event.value[0], server_data.hand)
                 if event.value[1] != 0:
-                    conn.send(ClientMessage(type_message=TYPE_TIMEOUT).serialize()) # boutons haut/bas du D-pad
+                    conn.send(ClientMessage(type_message=TYPE_TIMEOUT).serialize())  # boutons haut/bas du D-pad
             elif event.type == pygame.JOYAXISMOTION:
                 print("axis")
                 print("j{} h{} v{}".format(event.joy, event.axis, event.value))
@@ -170,13 +242,13 @@ if __name__ == '__main__':
                         selected_highlight = True
                 elif event.button == 8:  # select
                     sys.exit(0)
-                elif event.button == 0 and len(server_data.hand)>0:
+                elif event.button == 0 and len(server_data.hand) > 0:
                     server_data.hand[selected_index] = (
                         not server_data.hand[selected_index][0], server_data.hand[selected_index][1])
-                elif event.button == 1 and len(server_data.hand)>0:
+                elif event.button == 1 and len(server_data.hand) > 0:
                     server_data.hand[selected_index] = (
                         server_data.hand[selected_index][0], server_data.hand[selected_index][1] + 1)
-                elif event.button == 3 and len(server_data.hand)>0:
+                elif event.button == 3 and len(server_data.hand) > 0:
                     server_data.hand[selected_index] = (
                         server_data.hand[selected_index][0], server_data.hand[selected_index][1] - 1)
                 if event.button == 9:

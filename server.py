@@ -157,18 +157,19 @@ if __name__ == '__main__':
     listener.settimeout(1)
     listener.listen(15)
     while number_clients < 1 or number_clients > lobby.clients_ready:
-        #print("{}/{} clients ready".format(lobby.clients_ready, number_clients))
+        print("{}/{} clients ready".format(lobby.clients_ready, number_clients))
         try:
             conn, address = listener.accept()
+            broadcaster.client_sockets.append(
+                conn)  # TODO: utiliser un Lock ici pour ne pas faire de problèmes entre Threads
+            NetworkingReceiver(conn, receive_queue, clients=clients_map).start()
+            number_clients += 1
         except timeout:
             continue
-        broadcaster.client_sockets.append(
-            conn)  # TODO: utiliser un Lock ici pour ne pas faire de problèmes entre Threads
-        NetworkingReceiver(conn, receive_queue, clients=clients_map).start()
-        number_clients += 1
     print("game initializing")
     listener.settimeout(None)
-    # ici, le jeu se lance , tout le monde a utilisé TYPE_READY
+
+    # ici, le jeu se crée , tout le monde a utilisé TYPE_READY
     game_announcer.run=False # on arrête le broadcast UDP
 
     cards_needed = number_clients * (5) + 5
