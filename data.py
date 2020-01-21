@@ -180,8 +180,8 @@ class Message(SerializableMixin):
         self.payload = payload
         self.type_message = type_message
 
-    def __str__(self):
-        return MESSAGE_TYPES[self.type_message]  # TODO: faire un truc beau
+    def __str__(data):
+        return f"{MESSAGE_TYPES[data.type_message]} : {data.payload}"
 
     def to_struct(self) -> bytes:
         format = '!B?Bs'  # ! -> network order; ? -> booléen de la carte; h-> petit entier; s->string, les infos/options
@@ -222,6 +222,9 @@ class Client(object):
         self.username = username
 
     def send(self, message: Message):
+        if message.type_message == TYPE_GAME_END:
+            self.socket.send(ServerMessage(type_message=TYPE_INFO, payload="fin !"+50*"!").serialize())
+        print(f"sending {message} to {self.username}#{self.uid}")
         self.socket.send(message.serialize()) # si plus de connection TCP, BrokenPipeError
 
     def update_hand(self, t_m=TYPE_HAND_CHANGED, **kwargs):

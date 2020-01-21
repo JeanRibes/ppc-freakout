@@ -58,7 +58,7 @@ class NetworkReceiver(Thread):
         super().__init__(daemon=True)
 
     def run(self) -> None:
-        while True:
+        while not self.game_finished or True:
             buf = self.conn.recv(2048)
             data: ServerMessage = ServerMessage.deserialize(buf)
             self.message = data.infos
@@ -75,11 +75,11 @@ class NetworkReceiver(Thread):
                 print("**************************= JEU FINI =*******************************")
                 self.game_finished = True
                 self.message = data.payload
-                self.conn.close()
+                #self.conn.close()
     def send(self, message: ClientMessage):
         if not self.game_finished:
+            #self.conn.setblocking(False)
             self.conn.send(message.serialize())
-
 
 # board = [[(True, 4), (True, 4), (True, 4), (True, 4)],[(True, 5), (True, 5), (True, 5), (True, 5)],[(False, 5), (False, 5), (False, 5), ],[(False, 9), (False, 9), (False, 9), (False, 9), ],[(True, 1), (True, 1), (True, 1)],]
 
@@ -110,7 +110,6 @@ hy = y0
 selected_highlight = False
 police = "Noto Sans"
 menu_running = True
-
 if __name__ == '__main__':
     server_finder = FindGame(daemon=True)
     server_finder.start()
@@ -172,6 +171,8 @@ if __name__ == '__main__':
         start_menu.disable(closelocked=True)
         conn.send(ClientMessage(type_message=TYPE_READY).serialize())
 
+    def finish():
+        server_data.game_finished=True
 
     start_menu.add_option("Demarrer", im_ready)
     start_menu.add_option('Quitter', pygameMenu.events.EXIT)
@@ -182,6 +183,7 @@ if __name__ == '__main__':
     game_menu._onclose = game_menu.disable
     game_menu.add_option('Quitter', pygameMenu.events.EXIT)
     game_menu.add_option('Retour au jeu', game_menu.disable)
+    game_menu.add_option('Finir', finish)
     game_menu.disable()
 
     server_data.start()
@@ -193,10 +195,8 @@ if __name__ == '__main__':
     pygame.display.flip()
     print("starting game")
     server_data.game_ready_event.wait()
-    while True: # on quitte avec le menu
 
-        if selected_index >= len(server_data.hand) and selected_index > 0:
-            selected_index -= 1
+    while True: # on quitte avec le menu
         events = pygame.event.get()
         game_menu.mainloop(events)  # pour que le menu puisse s'afficher si on appuie sur ESC
         for event in events:

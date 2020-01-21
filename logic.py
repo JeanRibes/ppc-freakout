@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from queue import Queue
 
 from data import *
 from random import random
@@ -53,16 +54,14 @@ def broadcast(queues, item):
         q.put(item, block=False)
 
 
-def flush(queue):
+def flush(queue: Queue):
     """
     merci StackOverflow
     :param queue:
     :return:
     """
-    queue._wlock.acquire()
     while not queue.empty():
         queue.get()
-    queue._wlock.release()
 
 
 if __name__ == '__main__':
