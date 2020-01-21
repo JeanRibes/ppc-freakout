@@ -41,7 +41,7 @@ def shuffle(pile):
         out.append(inp.pop(indexes[int(random() * len(inp))]))
     return out
 
-def is_valid(board:Board, card:Card):
+def move_valid(board:Board, card:Card):
     ret = False
     for cards in board.values():
         for card_on_board in cards:

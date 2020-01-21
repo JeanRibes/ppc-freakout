@@ -1,4 +1,5 @@
 import socket, struct
+import sys
 from threading import Thread
 import typing
 import time
@@ -61,6 +62,7 @@ def find_server():
     except socket.timeout:
         print("Aucun serveur trouvé !")
         print("Essai de l'adresse par défaut")
+        return (sys.argv[1], sys.argv[2])
         return ('127.0.0.1', 1976)
 
 class FindGame(Thread):

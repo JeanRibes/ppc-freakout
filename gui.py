@@ -51,11 +51,11 @@ class NetworkReceiver(Thread):
     board: Board = Board()
     message = None
     game_finished = False
-    game_ready_event = Event()
+    game_ready=False
 
     def __init__(self, conn: socket.socket):
         self.conn = conn
-        super().__init__(daemon=True)
+        super().__init__()
 
     def run(self) -> None:
         while not self.game_finished or True:
@@ -67,7 +67,7 @@ class NetworkReceiver(Thread):
                 self.hand = [x.to_tuple() for x in data.payload]
             elif data.type_message == TYPE_BOARD_CHANGED:
                 self.board = data.payload
-                self.game_ready_event.set()
+                self.game_ready = True
             elif data.type_message in STRING_TYPES:
                 self.message = data.payload
                 print("--->" + data.payload)
@@ -75,11 +75,13 @@ class NetworkReceiver(Thread):
                 print("**************************= JEU FINI =*******************************")
                 self.game_finished = True
                 self.message = data.payload
-                #self.conn.close()
+                # self.conn.close()
+
     def send(self, message: ClientMessage):
         if not self.game_finished:
-            #self.conn.setblocking(False)
+            # self.conn.setblocking(False)
             self.conn.send(message.serialize())
+
 
 # board = [[(True, 4), (True, 4), (True, 4), (True, 4)],[(True, 5), (True, 5), (True, 5), (True, 5)],[(False, 5), (False, 5), (False, 5), ],[(False, 9), (False, 9), (False, 9), (False, 9), ],[(True, 1), (True, 1), (True, 1)],]
 
@@ -158,7 +160,7 @@ if __name__ == '__main__':
     server_finder.join()  # attend le timeout de l'écoute du broadcast
 
     conn.connect(server_finder.found_server)  # écoute le broadast local pour découvrir le serveur
-    server_data = NetworkReceiver(conn) #initialisation de la connexion au serveur de jeu
+    server_data = NetworkReceiver(conn)  # initialisation de la connexion au serveur de jeu
     server_data.message = username
     conn.send(ClientMessage(type_message=TYPE_JOIN, payload=username).serialize())
     #
@@ -171,8 +173,7 @@ if __name__ == '__main__':
         start_menu.disable(closelocked=True)
         conn.send(ClientMessage(type_message=TYPE_READY).serialize())
 
-    def finish():
-        server_data.game_finished=True
+
 
     start_menu.add_option("Demarrer", im_ready)
     start_menu.add_option('Quitter', pygameMenu.events.EXIT)
@@ -183,7 +184,6 @@ if __name__ == '__main__':
     game_menu._onclose = game_menu.disable
     game_menu.add_option('Quitter', pygameMenu.events.EXIT)
     game_menu.add_option('Retour au jeu', game_menu.disable)
-    game_menu.add_option('Finir', finish)
     game_menu.disable()
 
     server_data.start()
@@ -194,9 +194,21 @@ if __name__ == '__main__':
     pygame.display.update()
     pygame.display.flip()
     print("starting game")
-    server_data.game_ready_event.wait()
 
-    while True: # on quitte avec le menu
+    #server_data.game_ready_event.wait()
+
+    while not server_data.game_ready:
+        game_menu.mainloop(pygame.event.get())
+        screen.fill((153, 102, 0))
+        afficher_message(screen, "Attente des autres joueurs", font)
+        pygame.display.update()
+        pygame.display.flip()
+
+    while True:  # on quitte avec le menu
+
+        if selected_index >= len(server_data.hand):
+            selected_index -= 1
+
         events = pygame.event.get()
         game_menu.mainloop(events)  # pour que le menu puisse s'afficher si on appuie sur ESC
         for event in events:
@@ -220,11 +232,11 @@ if __name__ == '__main__':
             elif event.type == pygame.JOYHATMOTION:
                 selected_index = move_selection(selected_index, event.value[0], server_data.hand)
             elif event.type == pygame.JOYAXISMOTION:
-                #print("j{} h{} v{}".format(event.joy, event.axis, event.value))
+                # print("j{} h{} v{}".format(event.joy, event.axis, event.value))
                 selected_index = move_selection(selected_index, int(event.value), server_data.hand)
                 break  # je voulais avoir moins d'auto-repeat mais en fait ça marche pas
             elif event.type == pygame.JOYBUTTONDOWN:
-                #print("j{} b{}".format(event.joy, event.button))
+                # print("j{} b{}".format(event.joy, event.button))
                 if event.button == 5:
                     selected_index = move_selection(selected_index, 1, server_data.hand)
                 elif event.button == 4:
@@ -245,7 +257,7 @@ if __name__ == '__main__':
                     server_data.hand[selected_index] = (
                         server_data.hand[selected_index][0], server_data.hand[selected_index][1] - 1)
 
-        if selected_highlight and not server_data.game_finished and len(
+        if selected_highlight and not server_data.game_finished and len( # action 'asynchrone'
                 server_data.hand) > 0 and selected_index >= 0:  # une carte a été sélectionnée
             server_data.send(ClientMessage(
                 type_message=TYPE_ACTION,

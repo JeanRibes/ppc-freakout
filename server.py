@@ -28,7 +28,7 @@ class NetworkingReceiver(Thread):
         self.queue = queue
         self.socket = socket
         self.clients_map = clients
-        super().__init__()
+        super().__init__(daemon=True)
 
     def run(self):
         while self.running:
@@ -231,10 +231,12 @@ def main():
         card = message.payload
         # traitement
         boardL.acquire()
-        if (is_valid(board, card) and card in client.hand):  # True = validate_move
+        if (move_valid(board, card) and card in client.hand):#or True:
             client.timeoutThread.needs_penalty = False
-            client.hand.remove(card)
-            board.put(card)
+            try:
+                client.hand.remove(card)
+                board.put(card)
+            except:client.hand.pop() # pour les tests
             client.update_hand()
             broadcaster.queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board,
                                               infos="{} cartes restantes".format(len(pile))))
@@ -261,10 +263,9 @@ def main():
         broadcaster.queue.put(ServerMessage(type_message=TYPE_GAME_END, payload="Tout le monde a perdu"))
     broadcaster.queue.put(ServerMessage(type_message=TYPE_INFO, payload="Fin du jeu"))
     broadcaster.queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=Board()))
-    time.sleep(5)
+    time.sleep(5) # attente de l'envoi des messages
     broadcaster.queue.join()  # on attend que les messages soient partis
     broadcaster.running = False
-    broadcaster.join()
     pile.clear()
 
 
