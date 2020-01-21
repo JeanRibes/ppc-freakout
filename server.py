@@ -55,15 +55,17 @@ class NetworkBroadcaster(Thread):
     """
     queue: Queue = Queue()
     client_sockets: typing.List[socket] = []
-
+    running=True
     def __init__(self):
         super().__init__(daemon=True)
 
     def run(self) -> None:
-        while True:
+        while self.running or self.queue.qsize()>0:
             to_broadcast: ServerMessage = self.queue.get(block=True)
             assert type(
                 to_broadcast) == ServerMessage and to_broadcast.type_message in BROADCAST_TYPES, "mauvais type de message broadcast"
+            if to_broadcast.type_message in STRING_TYPES:
+                print("broadasting "+to_broadcast.payload+" ...")
             for socket in self.client_sockets:
                 socket.send(to_broadcast.serialize())
                 # sock.setblocking(False) à voir si ça permet de faire recv() en bloquant
@@ -83,7 +85,7 @@ class ClientTimeout(Thread):
         super().__init__(daemon=True)
 
     def run(self) -> None:
-        while len(pile) > 0:
+        while len(self.pile) > 0:
             self.needs_penalty = True
             time.sleep(30)
 
@@ -130,14 +132,14 @@ class Lobby(Thread):
                 #    self.game_started = True
 
 
-if __name__ == '__main__':
+def main():
     print("starting server", end='', flush=True)
 
     listener = socket()  # défaut: STREAM, IPv4
     # listener.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
     # listener.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    port = 2000 + int(random()*5)
-    print("on port " + str(port))
+    port = 2000 #+ int(random()*10)
+    print(" on port " + str(port))
     listener.bind(("0.0.0.0", port))
 
     game_announcer = BroadcastGame(listener.getsockname())
@@ -157,7 +159,7 @@ if __name__ == '__main__':
     listener.settimeout(1)
     listener.listen(15)
     while number_clients < 1 or number_clients > lobby.clients_ready:
-        print("{}/{} clients ready".format(lobby.clients_ready, number_clients))
+        #print("{}/{} clients ready".format(lobby.clients_ready, number_clients))
         try:
             conn, address = listener.accept()
             broadcaster.client_sockets.append(
@@ -168,9 +170,10 @@ if __name__ == '__main__':
             continue
     print("game initializing")
     listener.settimeout(None)
-
     # ici, le jeu se crée , tout le monde a utilisé TYPE_READY
     game_announcer.run=False # on arrête le broadcast UDP
+    lobby.game_started = True # on arrête de gérer les nouveaux joueurs
+    receive_queue.put((ServerMessage(type_message=TYPE_INFO, payload="stop lobby now"),0))
 
     cards_needed = number_clients * (5) + 5
 
@@ -189,20 +192,21 @@ if __name__ == '__main__':
 
     # distribution des cartes
     print(clients_map)
+    board.put(Card(string="B1"))
     for _, client in clients_map.items():
         if len(pile) > 5:
             hand = Hand()
             pileL.acquire()
-            for _ in range(5):
+            for _ in range(1):
                 hand.put(pile.pop())
             pileL.release()
             client.hand = hand
+            client.hand.put(Card(string="R1"))
             client.update_hand()
             print(client.hand)
-
     # démarrage du jeu
     print("game starting")
-    lobby.game_started=True
+
     broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board))
     for client in clients_map.values():
         tt = ClientTimeout(client, pile, pileL)
@@ -210,8 +214,9 @@ if __name__ == '__main__':
         client.timeoutThread = tt
 
     # jeu
-    while len(pile) > 0: #TODO: calculer le nombre de cartes restantes dans tout le jeu
+    while len(pile) > 0 and 0 not in [client.number_cards_hand() for client in clients_map.values()]: # pile vide ou une main vide
         # réception du message
+        print(f"cartes des clients : {[client.number_cards_hand() for client in clients_map.values()]}")
         data = receive_queue.get(block=True)
         message, uid = data
         print("processing message " + str(message))
@@ -231,7 +236,7 @@ if __name__ == '__main__':
         if card in client.hand and is_valid(board, card):  # True = validate_move
             client.timeoutThread.needs_penalty = False
             client.hand.remove(card)
-            board.put(card)  # TODO: utiliser boardL
+            board.put(card)
             client.update_hand()
             broadcast_queue.put(ServerMessage(type_message=TYPE_BOARD_CHANGED, payload=board, infos="{} cartes restantes".format(len(pile))))
         else:
@@ -251,6 +256,11 @@ if __name__ == '__main__':
         elif won_client is not None:
             print("erreur de logique: plusieurs client avaient des mains vides à la fin de la partie")
     if won_client is not None:
-        broadcast_queue.put(ServerMessage(type_message=TYPE_GAME_END, payload="Vous avez gagné! "+won_client.username))
+        broadcast_queue.put(ServerMessage(type_message=TYPE_GAME_END, payload=won_client.username+" a gagné !"))
     else:
         broadcast_queue.put(ServerMessage(type_message=TYPE_GAME_END, payload="Tout le monde a perdu"))
+    pile.empty()
+    broadcaster.running=False
+    broadcaster.join() # on attend que les messages soient partis
+if __name__ == '__main__':
+    main() # JEU de l'INFINI

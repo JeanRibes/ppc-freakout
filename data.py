@@ -131,7 +131,8 @@ class Hand(List):
 
 
 class Pile(List):
-    pass
+    def empty(self):
+        self.clear()
 
 
 class Action:
@@ -225,3 +226,6 @@ class Client(object):
 
     def update_hand(self, t_m=TYPE_HAND_CHANGED, **kwargs):
         self.send(ServerMessage(type_message=t_m, payload=self.hand, **kwargs))
+
+    def number_cards_hand(self):
+        return len(self.hand)

@@ -1,12 +1,12 @@
-import random
 import socket
 import sys
 from threading import Thread, Event
+
 import pygame
 import pygameMenu
 
 from data import *
-from matchmaking import find_server, FindGame
+from matchmaking import FindGame
 
 
 def dessiner_carte(screen, couleur, chiffre, font, y, x):
@@ -33,7 +33,6 @@ def dessiner_main(screen, x0, y0, cartes, font):
 
 def afficher_message(screen, message, font):
     if message is not None:
-        print(f"affichage du message : {message}")
         texte = font.render(message, True, (255, 255, 255))
         texte_rect = texte.get_rect()
         texte_rect.centerx = screen.get_width() // 2
@@ -54,7 +53,7 @@ class NetworkReceiver(Thread):
     game_finished = False
     game_ready_event = Event()
 
-    def __init__(self, conn):
+    def __init__(self, conn: socket.socket):
         self.conn = conn
         super().__init__(daemon=True)
 
@@ -73,8 +72,13 @@ class NetworkReceiver(Thread):
                 self.message = data.payload
                 print("--->" + data.payload)
             if data.type_message == TYPE_GAME_END:
-                self.game_finished = True
                 print("**************************= JEU FINI =*******************************")
+                self.game_finished = True
+                self.message = data.payload
+                self.conn.close()
+    def send(self, message: ClientMessage):
+        if not self.game_finished:
+            self.conn.send(message.serialize())
 
 
 # board = [[(True, 4), (True, 4), (True, 4), (True, 4)],[(True, 5), (True, 5), (True, 5), (True, 5)],[(False, 5), (False, 5), (False, 5), ],[(False, 9), (False, 9), (False, 9), (False, 9), ],[(True, 1), (True, 1), (True, 1)],]
@@ -113,13 +117,8 @@ if __name__ == '__main__':
     pygame.init()  # initialisation des ressources
     pygame.display.set_caption("PPC Freak Out!")
     font = pygame.font.SysFont(police, 20, 5)
-    done = False
     clock = pygame.time.Clock()  # intialisation du timer FPS
 
-
-    #### fin
-
-    # menu du jeu
 
     def bg_func():
         screen.fill((128, 0, 128))
@@ -131,7 +130,7 @@ if __name__ == '__main__':
     main._onclose = main.disable
     main.add_text_input(title="nom d'utilisateur: ", textinput_id='username', default="", input_underline='_',
                         maxchar=15, align=pygameMenu.locals.ALIGN_LEFT)
-    main.add_selector("Joystick", values=[('On', 0), ('Off', 1)], selector_id='joystick')
+    main.add_selector("Joystick", values=[('On', 0), ('Off', 1)], selector_id='joystick', default=1)
     main.add_option('Jouer', main.disable)
     main.add_option('Quitter', pygameMenu.events.EXIT)
 
@@ -152,14 +151,15 @@ if __name__ == '__main__':
     # configuration du jeu finie
 
     # démarrage du réseau
+    screen.fill((102, 102, 153))
     afficher_message(screen, "Connexion au serveur de jeu", font)
     pygame.display.update()
     pygame.display.flip()
     conn = socket.socket()
-    server_finder.join() # attend le timeout de l'écoute du broadcast
+    server_finder.join()  # attend le timeout de l'écoute du broadcast
 
     conn.connect(server_finder.found_server)  # écoute le broadast local pour découvrir le serveur
-    server_data = NetworkReceiver(conn)
+    server_data = NetworkReceiver(conn) #initialisation de la connexion au serveur de jeu
     server_data.message = username
     conn.send(ClientMessage(type_message=TYPE_JOIN, payload=username).serialize())
     #
@@ -171,7 +171,6 @@ if __name__ == '__main__':
         print('sending ready')
         start_menu.disable(closelocked=True)
         conn.send(ClientMessage(type_message=TYPE_READY).serialize())
-
 
 
     start_menu.add_option("Demarrer", im_ready)
@@ -187,14 +186,14 @@ if __name__ == '__main__':
 
     server_data.start()
 
-
     start_menu.mainloop()
+    screen.fill((153, 102, 0))
     afficher_message(screen, "Attente des autres joueurs", font)
     pygame.display.update()
     pygame.display.flip()
     print("starting game")
     server_data.game_ready_event.wait()
-    while not done:
+    while True: # on quitte avec le menu
 
         if selected_index >= len(server_data.hand) and selected_index > 0:
             selected_index -= 1
@@ -209,29 +208,23 @@ if __name__ == '__main__':
                 elif event.key == pygame.K_ESCAPE:
                     game_menu.enable()
                 elif event.key == pygame.K_LEFT:
-                    selected_index = (selected_index - 1) % len(server_data.hand)
+                    selected_index = move_selection(selected_index, -1, server_data.hand)
                 elif event.key == pygame.K_RIGHT:
-                    selected_index = (selected_index + 1) % len(server_data.hand)
+                    selected_index = move_selection(selected_index, +1, server_data.hand)
                 elif event.key == pygame.K_q:
                     sys.exit(0)
                 elif event.key == pygame.K_s:  # on lance le jeu
-                    conn.send(ClientMessage(type_message=TYPE_READY).serialize())
+                    server_data.send(ClientMessage(type_message=TYPE_READY))
                 elif event.key == pygame.K_m:
                     server_data.message = None
-                elif event.key == pygame.K_t:
-                    conn.send(ClientMessage(type_message=TYPE_TIMEOUT).serialize())
             elif event.type == pygame.JOYHATMOTION:
                 selected_index = move_selection(selected_index, event.value[0], server_data.hand)
-                if event.value[1] != 0:
-                    conn.send(ClientMessage(type_message=TYPE_TIMEOUT).serialize())  # boutons haut/bas du D-pad
             elif event.type == pygame.JOYAXISMOTION:
-                print("axis")
-                print("j{} h{} v{}".format(event.joy, event.axis, event.value))
+                #print("j{} h{} v{}".format(event.joy, event.axis, event.value))
                 selected_index = move_selection(selected_index, int(event.value), server_data.hand)
                 break  # je voulais avoir moins d'auto-repeat mais en fait ça marche pas
-                # selected_index = move_selection(selected_index, int(event.value)*int(abs(event.value)>0.5)*int(chance))
             elif event.type == pygame.JOYBUTTONDOWN:
-                print("j{} b{}".format(event.joy, event.button))
+                #print("j{} b{}".format(event.joy, event.button))
                 if event.button == 5:
                     selected_index = move_selection(selected_index, 1, server_data.hand)
                 elif event.button == 4:
@@ -251,18 +244,17 @@ if __name__ == '__main__':
                 elif event.button == 3 and len(server_data.hand) > 0:
                     server_data.hand[selected_index] = (
                         server_data.hand[selected_index][0], server_data.hand[selected_index][1] - 1)
-                if event.button == 9:
-                    conn.send(ClientMessage(type_message=TYPE_READY).serialize())
 
         if selected_highlight and not server_data.game_finished and len(
                 server_data.hand) > 0 and selected_index >= 0:  # une carte a été sélectionnée
-            conn.send(ClientMessage(type_message=TYPE_ACTION,
-                                    payload=Card.from_tuple(server_data.hand[selected_index])
-                                    ).serialize())  # on envoie notre action au serveur
+            server_data.send(ClientMessage(
+                type_message=TYPE_ACTION,
+                payload=Card.from_tuple(server_data.hand[selected_index])
+            ))  # on envoie notre action au serveur
             print("sending action")
             selected_highlight = False
 
-        if selected_index >= 0:
+        if selected_index >= 0 and not server_data.game_finished:
             highlight(screen, hy, x0 + 50 * selected_index, selected_highlight)
         dessiner_main(screen, y0, x0, server_data.hand, font)
         dessiner_board(screen, y0 + 90, x0, server_data.board, font)
@@ -272,5 +264,3 @@ if __name__ == '__main__':
         pygame.display.flip()  # double-buffered
         clock.tick(60)  # on attent pour limiter les FPS à 30 (et pas 100000 et un jeu qui bouf 100% CPU)
         screen.fill((0, 100, 0))  # on reset pour la frame suivante
-
-    print("fin ...")
