@@ -270,4 +270,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()  # JEU de l'INFINI
+    while True:
+        main()  # JEU de l'INFINI

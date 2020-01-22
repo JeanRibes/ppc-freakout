@@ -55,7 +55,7 @@ class NetworkReceiver(Thread):
 
     def __init__(self, conn: socket.socket):
         self.conn = conn
-        super().__init__()
+        super().__init__(daemon=True)
 
     def run(self) -> None:
         while not self.game_finished or True:
@@ -67,6 +67,8 @@ class NetworkReceiver(Thread):
                 self.hand = [x.to_tuple() for x in data.payload]
             elif data.type_message == TYPE_BOARD_CHANGED:
                 self.board = data.payload
+                if not self.game_ready:
+                    print("debut jeu")
                 self.game_ready = True
             elif data.type_message in STRING_TYPES:
                 self.message = data.payload
@@ -187,8 +189,8 @@ if __name__ == '__main__':
     game_menu.disable()
 
     server_data.start()
-
     start_menu.mainloop()
+
     screen.fill((153, 102, 0))
     afficher_message(screen, "Attente des autres joueurs", font)
     pygame.display.update()
@@ -198,11 +200,15 @@ if __name__ == '__main__':
     #server_data.game_ready_event.wait()
 
     while not server_data.game_ready:
-        game_menu.mainloop(pygame.event.get())
+        events=pygame.event.get()
+        game_menu.mainloop(events)
         screen.fill((153, 102, 0))
         afficher_message(screen, "Attente des autres joueurs", font)
+        clock.tick(60)
         pygame.display.update()
         pygame.display.flip()
+        if server_data.game_ready:
+            print('start game')
 
     while True:  # on quitte avec le menu
 
@@ -214,6 +220,14 @@ if __name__ == '__main__':
         for event in events:
             if event.type == pygame.QUIT:
                 sys.exit(0)
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                x,y = pygame.mouse.get_pos()
+                if y >= 10 and y <= 70:
+                    clicked_index= (x-10)//50
+                    #print(f"calc:{clicked_index} index: {selected_index}")
+                    if clicked_index < len(server_data.hand):
+                        selected_index = clicked_index
+                #print(f"x={x} y={y}")
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
                     selected_highlight = True
