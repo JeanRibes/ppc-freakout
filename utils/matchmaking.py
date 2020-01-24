@@ -62,8 +62,7 @@ def find_server():
     except socket.timeout:
         print("Aucun serveur trouvé !")
         print("Essai de l'adresse par défaut")
-        return (sys.argv[1], sys.argv[2])
-        return ('127.0.0.1', 1976)
+        return None
 
 class FindGame(Thread):
     def run(self) -> None:
